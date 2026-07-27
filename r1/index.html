@@ -159,6 +159,7 @@
   <div id="toast"></div>
   <div id="loading"><div class="pulse"></div></div>
   <div id="deb"></div>
+  <div id="devhint" style="display:none; position:fixed; left:0; right:0; bottom:0; font:10px/1.4 monospace; color:#9aa7b5; background:#0b0e14; padding:4px 6px; border-top:1px solid #243049; text-align:center; z-index:9999;">DEV CONTROLS &middot; &uarr;/&darr; or wheel = select &middot; Enter / click = act &middot; Esc = back &middot; type digits on ENTER screen</div>
 </div>
 
 <script src="jsqr.js"></script>
@@ -330,12 +331,12 @@ var scanStream=null, scanRAF=null, scanOn=false;
 function startScan(){
   if(scanOn)return; scanOn=true;
   $('loading').classList.add('on');
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('no camera');$('loading').classList.remove('on');show('scr-home');return;}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('no camera');$('loading').classList.remove('on');scanOn=false;show('scr-home');return;}
   navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:640}}}).then(function(s){
     scanStream=s; var v=$('scan-video'); v.srcObject=s; v.play();
     $('loading').classList.remove('on');
     scanLoop();
-  }).catch(function(){$('loading').classList.remove('on');toast('camera denied → Enter');show('scr-enter');});
+  }).catch(function(){ scanOn=false; $('loading').classList.remove('on'); toast('camera denied → Enter'); show('scr-enter'); });
 }
 function stopScan(){
   scanOn=false;
@@ -572,9 +573,9 @@ window.onPluginMessage=function(data){
 /* input wiring */
 function _clickGuard(){var n=Date.now();if(n-_lastClick<150)return false;_lastClick=n;return true;}
 function onSide(){ if(!_clickGuard())return;
-  if(curScreen==='scan'){stopScan();show('scr-home');return;}
-  if(curScreen==='spawn'){lockClash();return;}
-  if(curScreen==='roster'||curScreen==='dex'){show('scr-home');return;}
+  if(curScreen==='scr-scan'){stopScan();show('scr-home');return;}
+  if(curScreen==='scr-spawn'){lockClash();return;}
+  if(curScreen==='scr-roster'||curScreen==='scr-dex'){show('scr-home');return;}
   activate();
 }
 window.addEventListener('sideClick',onSide);
@@ -585,9 +586,35 @@ window.addEventListener('scrollWheel',function(e){moveSel((e.detail&&e.detail.di
 window.addEventListener('wheel',function(e){moveSel(e.deltaY<0?-1:1);},{passive:true});
 // tap to activate on spawn (capture) and elsewhere select
 $('app').addEventListener('touchend',function(e){ /* selection via scroll; tap acts */
-  if(curScreen==='spawn'){lockClash();}
+  if(curScreen==='scr-spawn'){lockClash();}
 });
 window.addEventListener('longPressEnd',function(){ if(curScreen!=='home')show('scr-home'); });
+
+/* ===== DEV INPUT ADAPTER (desktop / browser) =====
+   Lets us build & play the creation WITHOUT an R1. Maps keyboard/mouse to the
+   SAME R1 events the app listens for, so the on-device code path is exercised
+   unchanged. Gated on a debug query flag AND absence of the real r1 runtime,
+   so the committed R1 creation is never affected. */
+var DEV = /[#&?](debug|dev|desktop)/.test(location.href) && !window.r1;
+if(DEV){
+  $('devhint').style.display='block';
+  function fire(ev, detail){ var e=new Event(ev, {bubbles:false}); if(detail)e.detail=detail; window.dispatchEvent(e); }
+  document.addEventListener('keydown', function(e){
+    var k=e.key;
+    if(curScreen==='enter' && /^[0-9]$/.test(k)){ e.preventDefault(); activate(); return; }
+    if(k==='ArrowUp'||k==='w'){ e.preventDefault(); fire('scrollUp'); }
+    else if(k==='ArrowDown'||k==='s'){ e.preventDefault(); fire('scrollDown'); }
+    else if(k==='Enter'||k===' '){ e.preventDefault(); fire('sideClick'); }
+    else if(k==='Escape'){ e.preventDefault(); fire('longPressEnd'); }
+  });
+  // mouse: drag/click the 240x282 stage to act; wheel to scroll-select (mirrors R1 scroll wheel)
+  var stage=$('app');
+  stage.addEventListener('click', function(e){ if(e.target.closest('#upc-disp')||e.target.closest('.numpad'))return; fire('sideClick'); });
+  stage.addEventListener('wheel', function(e){ fire('scrollWheel', {detail:{direction: e.deltaY>0?'down':'up'}}); }, {passive:true});
+  // prevent page scroll/zoom in dev
+  document.addEventListener('touchmove', function(e){ e.preventDefault(); }, {passive:false});
+  window.addEventListener('wheel', function(e){ e.preventDefault(); }, {passive:false});
+}
 
 /* debug overlay */
 if(DEBUG){$('deb').classList.add('on');
