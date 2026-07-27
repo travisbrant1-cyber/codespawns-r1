@@ -1,0 +1,9 @@
+{
+  "name": "codespawns-r1",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scannerz-for-today barcode-monster RPG for the Rabbit R1. Deterministic spawn engine + R1 creation.",
+  "scripts": {
+    "test": "node test/spawn.test.js"
+  }
+}
