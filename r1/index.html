@@ -146,6 +146,13 @@
     <div class="tip">scroll · side = back</div>
   </section>
 
+  <!-- SHOP -->
+  <section id="scr-shop" class="screen">
+    <div class="hdr"><span class="t">SHOP</span><span class="m" id="shop-credits">0¢</span></div>
+    <div class="body"><div class="list" id="shop-list"></div></div>
+    <div class="tip">scroll · side = select</div>
+  </section>
+
   <!-- ENTER CODE -->
   <section id="scr-enter" class="screen">
     <div class="hdr"><span class="t">ENTER</span><span class="m">UPC</span></div>
@@ -205,7 +212,7 @@ function load(key,def){try{var r=localStorage.getItem(key);return r?JSON.parse(r
 function save(key,val){localStorage.setItem(key,JSON.stringify(val));}
 
 /* state */
-var state=load('csp_state',{roster:[],dex:[],boss:0,slots:6});
+var state=load('csp_state',{roster:[],dex:[],boss:0,slots:6,credits:0,upgrades:{luck:0,power:0,storage:0,shield:0}});
 
 /* element palettes */
 var PAL={Fire:['#ff5a3c','#ffd23c'],Water:['#3ca0ff','#9be7ff'],Grass:['#4caf50','#b6ff6b'],
@@ -259,6 +266,7 @@ function show(id){
   if(id==='scr-home')renderHome();
   else if(id==='scr-roster')renderRoster();
   else if(id==='scr-dex')renderDex();
+  else if(id==='scr-shop')renderShop();
   else if(id==='scr-battle')renderBattle();
   else if(id==='scr-enter')renderEnter();
   else if(id==='scr-scan')startScan();
@@ -293,7 +301,8 @@ function renderHome(){
     {ic:'⌨',label:'Enter Code',act:function(){show('scr-enter');}},
     {ic:'★',label:'Roster',sub:'('+state.roster.length+'/'+state.slots+')',act:function(){show('scr-roster');}},
     {ic:'▤',label:'Dex',sub:'('+state.dex.length+')',act:function(){show('scr-dex');}},
-    {ic:'⚔',label:'Boss Battle',sub:state.boss>=BOSSES.length?'ALL CLEAR':'#'+(state.boss+1),act:function(){show('scr-battle');}}
+    {ic:'⚔',label:'Boss Battle',sub:state.boss>=BOSSES.length?'ALL CLEAR':'#'+(state.boss+1),act:function(){show('scr-battle');}},
+    {ic:'⚒',label:'Shop',sub:state.credits+'¢',act:function(){show('scr-shop');}}
   ]);
 }
 
@@ -458,11 +467,13 @@ function startClash(){
 function lockClash(){
   if(!capturing)return; capturing=false;
   if(clashRAF)cancelAnimationFrame(clashRAF);
-  var center=0.5, half=0.09; // sweet zone
+  var luck=(state.upgrades&&state.upgrades.luck)||0;
+  var halfW=0.09+luck*0.02;
+  var center=0.5;
   var d=Math.abs(clashPos-center);
-  var q=Math.max(0,1-(d/half)); // 0..1
+  var q=Math.max(0,1-(d/halfW)); // 0..1
   var lvl=1+Math.floor(q*4); // 1..5
-  var rarityBump=(q>0.92 && Math.random()<0.5);
+  var rarityBump=(q>0.88 && Math.random()<0.4+luck*0.1);
   curMon.level=lvl;
   if(rarityBump&&curMon.rarity==='Common')curMon.rarity='Uncommon';
   captureMon(curMon);
@@ -477,7 +488,18 @@ function captureMon(mon){
   var seen=state.dex.find(function(d){return d.upc===mon.upc;});
   if(!seen){state.dex.push({upc:mon.upc,name:mon.name,element:mon.element,rarity:mon.rarity});}
   save('csp_state',state);
-  toast('CAUGHT · Lv'+mon.level);
+  var firstSeen=!seen;
+  function awardCredits(mon,firstSeen){
+    var base=10;
+    var rarityBonus={Common:0,Uncommon:5,Rare:15,Epic:40,Legendary:100}[mon.rarity]||0;
+    var firstBonus=firstSeen?20:0;
+    var total=base+rarityBonus+firstBonus;
+    state.credits+=total;
+    save('csp_state',state);
+    return total;
+  }
+  var earned=awardCredits(mon,firstSeen);
+  toast('CAUGHT · Lv'+mon.level+' · +'+earned+'¢');
   setTimeout(function(){show('scr-home');},1500);
 }
 
@@ -512,20 +534,25 @@ function registerBattleActions(){
 function attack(){
   if(!battle||battle.bossHp<=0||battle.monHp<=0)return;
   var m=battle.mon, b=battle.boss;
+  var pwr=(state.upgrades.power||0)*0.08;
+  var shld=(state.upgrades.shield||0)*0.10;
   var mult=STRONG[m.element]===b.el?1.5:(STRONG[b.el]===m.element?0.6:1);
-  var dmg=Math.max(1,Math.round(m.stats.atk*mult-b.atk*0.3));
+  var dmg=Math.max(1,Math.round(m.stats.atk*(1+pwr)*mult-b.atk*0.3));
   battle.bossHp-=dmg; $('battle-log').textContent=m.name+' hits for '+dmg+(mult>1?' (super!)':'');
   updateBars();
   if(battle.bossHp<=0){winBattle();return;}
   // boss retaliates
-  var rdmg=Math.max(1,Math.round(b.atk-Math.floor(m.stats.def*0.3)));
+  var rdmg=Math.max(1,Math.round((b.atk-Math.floor(m.stats.def*0.3))*(1-shld)));
   battle.monHp-=rdmg; updateBars();
   if(battle.monHp<=0){$('battle-log').textContent=b.name+' defeated you!';setTimeout(function(){show('scr-home');},1400);}
 }
 function winBattle(){
   state.boss++; if(BOSSES[state.boss-1].drop==='+Roster Slot')state.slots++;
   save('csp_state',state);
-  toast('WON · '+BOSSES[state.boss-1].drop+'!');
+  var bossCredits=20*state.boss;
+  state.credits+=bossCredits;
+  save('csp_state',state);
+  toast('WON · '+BOSSES[state.boss-1].drop+'! · +'+bossCredits+'¢');
   setTimeout(function(){show('scr-home');},1800);
 }
 
@@ -543,6 +570,35 @@ function renderDex(){
   var items=state.dex.map(function(d){return {label:d.name,sub:d.element+' · '+d.rarity,act:function(){toast(d.upc);}};});
   items.push({label:'‹ Back',act:function(){show('scr-home');}});
   registerList($('dex-list'),items);
+}
+/* SHOP */
+var UPGRADES=[
+  {key:'luck',ic:'☆',label:'Lucky Scan',desc:'Wider capture + rarity bump',base:50,step:25,max:5},
+  {key:'power',ic:'⚔',label:'Power Core',desc:'+8% ATK per level',base:75,step:40,max:5},
+  {key:'storage',ic:'⇪',label:'Storage',desc:'+1 roster slot',base:100,step:100,max:4},
+  {key:'shield',ic:'🛡',label:'Boss Shield',desc:'-10% boss dmg',base:60,step:35,max:5}
+];
+function renderShop(){
+  $('shop-credits').textContent=state.credits+'¢';
+  var items=UPGRADES.map(function(u){
+    var lvl=state.upgrades[u.key]||0;
+    var cost=u.base+lvl*u.step;
+    var can=lvl<u.max;
+    return {ic:u.ic,label:u.label+(can?' ('+lvl+'/'+u.max+')':' MAX'),sub:(can?cost+'¢':'—'),act:can?function(){buyUpgrade(u.key,cost);}:function(){}};
+  });
+  items.push({ic:'‹',label:'Back',act:function(){show('scr-home');}});
+  registerList($('shop-list'),items);
+}
+function buyUpgrade(key,cost){
+  if(state.credits<cost){toast('need '+cost+'¢');return;}
+  state.credits-=cost;
+  state.upgrades[key]=(state.upgrades[key]||0)+1;
+  save('csp_state',state);
+  if(key==='storage'){state.slots++;save('csp_state',state);toast('slot added');}
+  else if(key==='power')toast('ATK up');
+  else if(key==='shield')toast('shield up');
+  else if(key==='luck')toast('luck up');
+  renderShop();
 }
 
 /* NET + toast */
